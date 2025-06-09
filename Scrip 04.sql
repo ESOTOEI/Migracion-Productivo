@@ -1,6 +1,5 @@
 --Campo aprobacion del cuestionario para HU 174-175
 ALTER TABLE CUESTIONARIOS_RESP ADD APROBACION_CUESTIONARIO NUMBER;
---COMMIT
 
 --Procedimiento para envio de alerta HU prioritarias HU 180  
 create or replace PROCEDURE ENVIAR_CORREO_PARA_RENOVACION_CERTIFICADO_IN_ACTIVE(p_proceso_id NUMBER) IS
@@ -155,7 +154,18 @@ BEGIN
     APEX_MAIL.PUSH_QUEUE;
 END;
 /
+--job de ejecucion diaria para envio de alerta suspension tecnica 
 
+BEGIN
+    DBMS_SCHEDULER.CREATE_JOB (
+        job_name        => 'JOB_ENVIO_ALERTA_APEX_ST',
+        job_type        => 'PLSQL_BLOCK',
+        job_action      => 'BEGIN ENVIAR_ALERTA_PARA_SUSPENSION_TECNICA; END;',
+        repeat_interval => 'FREQ=DAILY; BYHOUR=9; BYMINUTE=0; BYSECOND=0;',
+        enabled        => TRUE
+    );
+END;
+/
 
 --Alerta para estado de certificado vencido no renovado HU 164
 
@@ -211,11 +221,23 @@ SELECT
 END;
 /
 
+--Job de ejecucion diaria para la alerta de vencido no renovado 
+
+BEGIN
+    DBMS_SCHEDULER.CREATE_JOB (
+        job_name        => 'JOB_ENVIO_ALERTA_APEX_VNR',
+        job_type        => 'PLSQL_BLOCK',
+        job_action      => 'BEGIN ENVIAR_ALERTA_PARA_VENCIDO_NO_RENOVADO; END;',
+        start_date      => SYSDATE,
+        repeat_interval => 'FREQ=DAILY; ',
+        enabled        => TRUE
+    );
+END;
 
 --Envio de alerta para HU 148 Modulo Admon y control de estados 
 
 
-create or replace PROCEDURE ENVIAR_ALERTA_POR_REGIONAL_CERTIFICADOS(
+CREATE OR REPLACE PROCEDURE ENVIAR_ALERTA_POR_REGIONAL_CERTIFICADOS(
     p_regional VARCHAR2,
     p_correos VARCHAR2,
     p_mes VARCHAR2
