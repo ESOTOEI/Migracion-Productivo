@@ -1,5 +1,6 @@
 --Campo aprobacion del cuestionario para HU 174-175
 ALTER TABLE CUESTIONARIOS_RESP ADD APROBACION_CUESTIONARIO NUMBER;
+--COMMIT
 
 --Procedimiento para envio de alerta HU prioritarias HU 180  
 create or replace PROCEDURE ENVIAR_CORREO_PARA_RENOVACION_CERTIFICADO_IN_ACTIVE(p_proceso_id NUMBER) IS
