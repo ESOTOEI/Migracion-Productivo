@@ -615,3 +615,104 @@ EXCEPTION
         DBMS_OUTPUT.PUT_LINE('Error en la creación: ' || SQLERRM);
 END;
 /
+-- ======================================================
+-- SCRIPT DE MODIFICACIONES
+-- Desarrollo: Envío de alertas por observaciones de atraso
+-- Descripción: Creación del procedimiento enviar_alerta_observaciones
+-- ======================================================
+
+CREATE OR REPLACE PROCEDURE enviar_alerta_observaciones (
+    p_proceso_id     NUMBER,
+    p_cliente        VARCHAR2,
+    p_observaciones  CLOB,
+    p_responsable    VARCHAR2 -- IDs separados por ':'
+) IS
+    v_correo_coordinador VARCHAR2(255) := 'jcespedes@icontec.org';
+    v_correo_ejecutivo   VARCHAR2(255);
+    v_cuerpo_final       CLOB;
+    v_categorias         CLOB := '';
+    v_categoria          VARCHAR2(255);
+    v_incluir_ejecutivo  BOOLEAN := FALSE;
+
+    -- Tipo tabla para dividir los responsables
+    TYPE t_responsables IS TABLE OF VARCHAR2(10) INDEX BY PLS_INTEGER;
+    v_responsables t_responsables;
+BEGIN
+    -- Obtener correo del ejecutivo
+    SELECT EMAIL_EJECUTIVO
+    INTO v_correo_ejecutivo
+    FROM bpm_procesos
+    WHERE id = NVL((
+        SELECT MAX(np.proceso_id)
+        FROM ges_normas_procesos np,
+             bpm_procesos p,
+             BPM_IMG_ESTADOS_PROCESOS ep
+        WHERE np.certificado_id = p_proceso_id
+          AND np.proceso_id = p.id
+          AND p.estado_id = ep.id
+          AND ep.estado NOT IN ('Anulado')
+    ), p_proceso_id);
+
+    -- Separar los responsables por ':'
+    DECLARE
+        v_index PLS_INTEGER := 1;
+        v_pos   PLS_INTEGER := 0;
+        v_str   VARCHAR2(4000) := p_responsable;
+    BEGIN
+        LOOP
+            v_pos := INSTR(v_str, ':');
+            IF v_pos > 0 THEN
+                v_responsables(v_index) := SUBSTR(v_str, 1, v_pos - 1);
+                v_str := SUBSTR(v_str, v_pos + 1);
+            ELSE
+                v_responsables(v_index) := v_str;
+                EXIT;
+            END IF;
+            v_index := v_index + 1;
+        END LOOP;
+    END;
+
+    -- Recorrer los responsables y armar listado de categorías válidas
+    FOR i IN v_responsables.FIRST .. v_responsables.LAST LOOP
+        IF TO_NUMBER(v_responsables(i)) IN (3, 4, 7) THEN
+            v_incluir_ejecutivo := TRUE;
+        END IF;
+
+        BEGIN
+            SELECT CATEGORIA
+            INTO v_categoria
+            FROM RESPONSABLES_ATRASO
+            WHERE ID = TO_NUMBER(v_responsables(i));
+
+            v_categorias := v_categorias || '- ' || v_categoria || '<br>';
+        EXCEPTION
+            WHEN NO_DATA_FOUND THEN
+                NULL; -- Ignorar si no hay categoría para ese ID
+        END;
+    END LOOP;
+
+    -- Si hay responsables válidos, enviar correo
+    IF v_categorias IS NOT NULL THEN
+        v_cuerpo_final := '<html><body>' || 
+            'Estimados,<br><br>' ||
+            'El proceso con ID ' || TO_CHAR(p_proceso_id) || 
+            ' del cliente ' || p_cliente || 
+            ' presenta las siguientes observaciones:<br><br>' ||
+            p_observaciones || '<br><br>' ||
+            'Responsables:<br>' || v_categorias || '<br>' ||
+            'Si esta información no está en el alcance de su gestión, por favor ignore este mensaje.<br>' ||
+            'De lo contrario, agradeceríamos su colaboración para agilizar el proceso.<br><br>' ||
+            'Gracias.' ||
+            '</body></html>';
+
+        apex_mail.send(
+            p_to         => v_correo_coordinador || CASE WHEN v_incluir_ejecutivo THEN ',' || v_correo_ejecutivo ELSE '' END,
+            p_cc         => 'pasantetic@icontec.org, cpachon@icontec.org',
+            p_from       => par('MAIL_FROM'),
+            p_body       => v_cuerpo_final,
+            p_body_html  => v_cuerpo_final,
+            p_subj       => 'Observaciones de atraso'
+        );
+    END IF;
+END;
+/
